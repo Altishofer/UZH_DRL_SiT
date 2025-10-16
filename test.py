@@ -19,7 +19,7 @@ def evaluate(args, actor_critic, device, num_processes=1, aug_id=None):
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
     # eval_envs = VecPyTorchProcgen(venv, device)
-    eval_envs = VecPyTorchProcgenSmall
+    eval_envs = VecPyTorchProcgenSmall(venv, device)
 
     eval_episode_rewards = []
 
