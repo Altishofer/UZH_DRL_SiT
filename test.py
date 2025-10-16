@@ -5,7 +5,7 @@ from procgen import ProcgenEnv
 from baselines.common.vec_env.vec_monitor import VecMonitor
 from baselines.common.vec_env.vec_normalize import VecNormalize
 from baselines.common.vec_env.vec_remove_dict_obs import VecExtractDictObs
-from ucb_rl2_meta.envs import VecPyTorchProcgen
+from ucb_rl2_meta.envs import VecPyTorchProcgen, VecPyTorchProcgenSmall
 
 
 def evaluate(args, actor_critic, device, num_processes=1, aug_id=None):
@@ -18,7 +18,8 @@ def evaluate(args, actor_critic, device, num_processes=1, aug_id=None):
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
-    eval_envs = VecPyTorchProcgen(venv, device)
+    # eval_envs = VecPyTorchProcgen(venv, device)
+    eval_envs = VecPyTorchProcgenSmall
 
     eval_episode_rewards = []
 

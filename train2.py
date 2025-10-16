@@ -14,7 +14,7 @@ from test import evaluate
 from ucb_rl2_meta import algo, utils
 from ucb_rl2_meta.algo.drac import DrAC
 from ucb_rl2_meta.arguments import parser
-from ucb_rl2_meta.envs import VecPyTorchProcgen
+from ucb_rl2_meta.envs import VecPyTorchProcgen, VecPyTorchProcgenSmall
 from ucb_rl2_meta.model import Policy, Policy_Sit, AugCNN
 from ucb_rl2_meta.storage import RolloutStorage
 
@@ -44,7 +44,7 @@ parser.add_argument(
 
 parser.add_argument(
     '--use_ppo',
-    default=True,
+    default=False,
     help='use PPo algo')
 
 # 'rotate': data_augs.Rotate_degree,
@@ -72,7 +72,7 @@ def train(args):
     utils.cleanup_log_dir(log_dir)
 
     # torch.set_num_threads(1)
-    device = torch.device("cpu" if not torch.cuda.is_available() and args.cuda else "cuda:" + str(args.device_id))
+    device = torch.device("cpu" if not torch.cuda.is_available() else "cuda:" + str(args.device_id))
     print("-------  device: ", args.device_id, "------")
     #  = torch.device("cuda:" + str(args.device_id))
 
@@ -84,9 +84,11 @@ def train(args):
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
     venv = VecNormalize(venv=venv, ob=False)
-    envs = VecPyTorchProcgen(venv, device)
+    # envs = VecPyTorchProcgen(venv, device)
+    envs = VecPyTorchProcgenSmall(venv, device)
 
     obs_shape = envs.observation_space.shape
+    print("Observation shape: ", obs_shape)
     if args.use_sit:
         actor_critic = Policy_Sit(
             obs_shape,
