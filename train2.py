@@ -1,5 +1,8 @@
 import os
+import time
+import timeit
 from collections import deque
+from test import evaluate
 
 import numpy as np
 import torch
@@ -10,12 +13,11 @@ from baselines import logger
 from baselines.common.vec_env.vec_monitor import VecMonitor
 from baselines.common.vec_env.vec_normalize import VecNormalize
 from baselines.common.vec_env.vec_remove_dict_obs import VecExtractDictObs
-from test import evaluate
 from ucb_rl2_meta import algo, utils
 from ucb_rl2_meta.algo.drac import DrAC
 from ucb_rl2_meta.arguments import parser
 from ucb_rl2_meta.envs import VecPyTorchProcgen, VecPyTorchProcgenSmall
-from ucb_rl2_meta.model import Policy, Policy_Sit, AugCNN
+from ucb_rl2_meta.model import AugCNN, Policy, Policy_Sit
 from ucb_rl2_meta.storage import RolloutStorage
 
 parser.add_argument(
@@ -78,8 +80,8 @@ def train(args):
 
     log_file = '-{}-{}-reproduce-s{}'.format(args.run_name, args.env_name, args.seed)
 
-    venv = ProcgenEnv(num_envs=args.num_processes, env_name=args.env_name, \
-                      num_levels=args.num_levels, start_level=args.start_level, \
+    venv = ProcgenEnv(num_envs=args.num_processes, env_name=args.env_name,
+                      num_levels=args.num_levels, start_level=args.start_level,
                       distribution_mode=args.distribution_mode)
     venv = VecExtractDictObs(venv, "rgb")
     venv = VecMonitor(venv=venv, filename=None, keep_buf=100)
@@ -141,7 +143,7 @@ def train(args):
 
     elif args.use_meta_learning:
         aug_id = data_augs.Identity
-        aug_list = [aug_to_func[t](batch_size=batch_size) \
+        aug_list = [aug_to_func[t](batch_size=batch_size)
                     for t in list(aug_to_func.keys())]
 
         aug_model = AugCNN()
@@ -257,6 +259,8 @@ def train(args):
         args.num_env_steps) // args.num_steps // args.num_processes
 
     for j in range(init_epoch, num_updates):
+        # get current milliseconds
+        start_time_ms = time.perf_counter() * 1000
         actor_critic.train()
         for step in range(args.num_steps):
             # Sample actions
@@ -326,7 +330,7 @@ def train(args):
 
         # Save Model
         if (j > 0 and j % args.save_interval == 0
-            or j == num_updates - 1) and args.save_dir != "":
+                or j == num_updates - 1) and args.save_dir != "":
             try:
                 os.makedirs(args.save_dir)
             except OSError:
@@ -337,6 +341,9 @@ def train(args):
                 'model_state_dict': agent.actor_critic.state_dict(),
                 'optimizer_state_dict': agent.optimizer.state_dict(),
             }, os.path.join(args.save_dir, "agent" + log_file + ".pt"))
+
+        end_time_ms = time.perf_counter() * 1000
+        print("Time for {} steps: {} ms".format(args.num_steps, end_time_ms - start_time_ms))
 
 
 if __name__ == "__main__":
