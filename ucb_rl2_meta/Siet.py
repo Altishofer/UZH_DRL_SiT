@@ -1,8 +1,15 @@
 import math
+import sys
 import warnings
 
 import torch.nn as nn
 from torch.nn.init import _calculate_fan_in_and_fan_out
+
+
+def log(tag, **kwargs):
+    return
+    msg = " | ".join([f"{k}={kwargs[k]}" for k in kwargs])
+    print(f"[{tag}] {msg}", file=sys.stdout, flush=True)
 
 
 def _init_vit_weights(module):
@@ -744,6 +751,7 @@ class VisionTransformer(nn.Module):
         # trunc_normal_(self.pos_embed, std=.02)
         trunc_normal_(self.cls_token, std=.02)
         self.apply(_init_vit_weights)
+        self.patch_agg = nn.Linear(1, embed_dim)
 
     @torch.jit.ignore
     def no_weight_decay(self):
@@ -757,9 +765,12 @@ class VisionTransformer(nn.Module):
         # x = x + self.pos_embed
         x = self.blocks(x)
         x = self.norm(x)
-        y = self.proj2(nn.GELU()(self.proj(x[:, 1:])))
-        y = y.reshape(x[:, 0].shape)
+        y = self.proj2(nn.GELU()(self.proj(x[:, 1:])))  # [B, N, 1]
+        y = y.mean(dim=1)  # [B, 1]
+        y = self.patch_agg(y)  # [B, 64]
         y = torch.cat([self.projf(nn.GELU()(y)), self.projf2(nn.GELU()(x[:, 0]))], dim=-1)
+        return y
+
         return y  #
 
 
@@ -767,6 +778,9 @@ class Siet(nn.Module):
     def __init__(self, img_size=64, action_dim=15, patch_size=8, patch_size_local=12, in_chans=9, embed_dim=64, depth=2,
                  num_heads=8, mlp_ratio=4., qkv_bias=True, qk_scale=None, use_soft=True):
         super().__init__()
+        print(
+            f"SiET model initialized with config: \n{img_size=}, {action_dim=}, {patch_size=}, {patch_size_local=}, {in_chans=}, {embed_dim=}, {depth=}, {num_heads=}, {mlp_ratio=}, {qkv_bias=}, {qk_scale=}, {use_soft=}")
+
         self.action_dim = action_dim
         self.patch_size = patch_size
         self.patch_size_l = patch_size_local
@@ -867,43 +881,43 @@ class Sym_Break_Linear_Block(nn.Module):
         self.patch_size = patch_size
         self.in_features = in_features
         self.num_patches = num_patches
-        # for weights
+
         self.kernel_size = self.patch_size + 1
         self.kernel_size0 = self.patch_size // 2 + 1
         self.padding0 = self.patch_size // 4
         self.padding = (self.kernel_size - 1) // 2
-        # self.padding2 = (self.patch_size) //4
-        idxsW0, dimW0 = grid_dist_to_idx(dim=self.kernel_size0)  # int(math.sqrt(num_patches)))
+
+        idxsW0, dimW0 = grid_dist_to_idx(dim=self.kernel_size0)
         self.idxsW0 = idxsW0
         self.dimW0 = dimW0
-        idxsW, dimW = grid_dist_to_idx(dim=self.kernel_size)  # int(math.sqrt(num_patches)))
+
+        idxsW, dimW = grid_dist_to_idx(dim=self.kernel_size)
         self.idxsW = idxsW
         self.dimW = dimW
-        # for weights
+
         self.weights = nn.Parameter(torch.Tensor(in_features, dimW))
-        nn.init.kaiming_uniform_(self.weights, a=math.sqrt(5))  # weight init
+        nn.init.kaiming_uniform_(self.weights, a=math.sqrt(5))
+
         self.weights0 = nn.Parameter(torch.Tensor(in_features, dimW0))
-        nn.init.kaiming_uniform_(self.weights0, a=math.sqrt(5))  # weight init
+        nn.init.kaiming_uniform_(self.weights0, a=math.sqrt(5))
+
         self.weights1 = nn.Parameter(torch.Tensor(in_features, dimW))
-        nn.init.kaiming_uniform_(self.weights1, a=math.sqrt(5))  # weight init
+        nn.init.kaiming_uniform_(self.weights1, a=math.sqrt(5))
 
         self.weightsa = nn.Parameter(torch.Tensor(in_features, dimW))
-        nn.init.kaiming_uniform_(self.weightsa, a=math.sqrt(5))  # weight init
+        nn.init.kaiming_uniform_(self.weightsa, a=math.sqrt(5))
+
         self.weights1a = nn.Parameter(torch.Tensor(in_features, dimW))
         nn.init.kaiming_uniform_(self.weights1a, a=math.sqrt(5))
-        # self.weights01 = nn.Parameter(torch.Tensor(in_features,dimW0))
-        # nn.init.kaiming_uniform_(self.weights01, a=math.sqrt(5)) # weight init
 
-        idxsW2, dimW2 = grid_dist_to_idx2(dim=self.patch_size // 2)  # int(math.sqrt(num_patches)))
+        idxsW2, dimW2 = grid_dist_to_idx2(dim=self.patch_size // 2)
         self.idxsW2 = idxsW2
         self.dimW2 = dimW2
-        # for weights
+
         self.weights2 = nn.Parameter(torch.Tensor(in_features, dimW2))
-        nn.init.kaiming_uniform_(self.weights2, a=math.sqrt(5))  # weight init
+        nn.init.kaiming_uniform_(self.weights2, a=math.sqrt(5))
 
         self.proj = nn.Linear(in_features, in_features, bias=False)
-        # self.proj1 = nn.Linear(in_features,in_features)
-        #   self.conv1 = nn.Conv2d(in_features,in_features,1)
         self.projk = nn.Linear(in_features, in_features, bias=False)
         self.projq = nn.Linear(in_features, in_features, bias=False)
         self.norm = nn.LayerNorm(3 * in_features)
@@ -911,26 +925,33 @@ class Sym_Break_Linear_Block(nn.Module):
         self.projk2 = nn.Linear(in_features, in_features, bias=False)
         self.projq2 = nn.Linear(in_features, in_features, bias=False)
         self.norm2 = nn.LayerNorm(3 * in_features)
-        # self.norm2 = nn.LayerNorm(in_features)
 
         self.attn = Attention_Basic(in_features, num_patches=num_patches, num_heads=num_heads, qkv_bias=False)
         self.attn2 = Attention_Basic(in_features, num_patches=num_patches, num_heads=num_heads, qkv_bias=False)
 
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
         self.norm_f = norm_layer(in_features)
-        self.projfinv = nn.Linear(in_features, in_features // 2)
-        self.projf = nn.Linear(in_features, 16)
-        self.projf2 = nn.Linear(16, 2)
+
+        # inverse path projection: Conv2d f -> f//2
+        self.projfinv = nn.Conv2d(in_channels=in_features, out_channels=in_features // 2, kernel_size=1, bias=True)
+
+        # feature MLP on channels-last f -> f//2
+        self.projf = nn.Linear(in_features, in_features // 2)
+        self.projf2 = nn.Identity()
+
+        # choose tokenization strategy
+        # True: produce fixed self.num_patches tokens via AdaptiveAvgPool2d to (img_size//patch_size, img_size//patch_size)
+        # False: produce all spatial tokens H2*W2
+        self.use_adaptive_pool = True
 
     def get_patches_flat(self, x, ps):
         bs, h, w, c = x.size()
         patches = x.unfold(1, ps, ps).permute(0, 1, 4, 2, 3)
         patches = patches.unfold(3, ps, ps).permute(0, 1, 3, 2, 5, 4)
-        return patches.reshape((-1, ps ** 2, c))  #
+        return patches.reshape((-1, ps ** 2, c))
 
     def reconstruct_image(self, patches, ps=4, img_dim=32):
         xy_dim = img_dim // ps
-
         bs, num_p, num_pn, f = patches.size()
         patches = patches.reshape(bs, num_p, ps, ps, f)
         img = patches.reshape((bs, xy_dim, xy_dim, ps, ps, f)).permute(0, 1, 3, 2, 4, 5)
@@ -938,65 +959,150 @@ class Sym_Break_Linear_Block(nn.Module):
         return img
 
     def forward(self, x):
-        # if self.mult is None:
-        bs, f, idim, idim = x.size()
-        W0 = torch.index_select(self.weights0, 1, self.idxsW0.flatten().to(x.device)).reshape(
+        log("SB_Block.enter", x_dim=x.dim(), x_shape=tuple(x.shape), dtype=str(x.dtype), device=str(x.device))
+
+        # ensure 4D [B, C, H, W]
+        if x.dim() > 4:
+            old_shape = tuple(x.shape)
+            x = x.flatten(0, x.dim() - 4)
+            log("SB_Block.flatten", old_shape=old_shape, new_shape=tuple(x.shape))
+
+        bs, f, H, W = x.size()
+        log("SB_Block.params",
+            bs=bs, f=f, H=H, W=W,
+            in_features=self.in_features,
+            kernel_size0=self.kernel_size0, kernel_size=self.kernel_size,
+            padding0=self.padding0, padding=self.padding,
+            patch_size=self.patch_size, num_patches=self.num_patches)
+
+        # index tensors
+        idxsW0 = self.idxsW0.flatten().to(x.device)
+        idxsW = self.idxsW.flatten().to(x.device)
+        idxsW2 = self.idxsW2.flatten().to(x.device)
+        log("SB_Block.kernels",
+            idxsW0_shape=tuple(self.idxsW0.shape),
+            idxsW_shape=tuple(self.idxsW.shape),
+            idxsW2_shape=tuple(self.idxsW2.shape),
+            dimW0=self.dimW0, dimW=self.dimW, dimW2=self.dimW2)
+
+        # prepare spatial kernels
+        W0 = torch.index_select(self.weights0, 1, idxsW0).reshape(
             (self.in_features, 1, self.kernel_size0, self.kernel_size0))
-        # W01 =  torch.index_select(self.weights01 , 1, self.idxsW0.flatten().to(x.device)).reshape((self.in_features,1,self.kernel_size0,self.kernel_size0))
-        W = torch.index_select(self.weights, 1, self.idxsW.flatten().to(x.device)).reshape(
+        W = torch.index_select(self.weights, 1, idxsW).reshape(
             (self.in_features, 1, self.kernel_size, self.kernel_size))
-        W1 = torch.index_select(self.weights1, 1, self.idxsW.flatten().to(x.device)).reshape(
+        W1 = torch.index_select(self.weights1, 1, idxsW).reshape(
             (self.in_features, 1, self.kernel_size, self.kernel_size))
-
-        Wa = torch.index_select(self.weightsa, 1, self.idxsW.flatten().to(x.device)).reshape(
+        Wa = torch.index_select(self.weightsa, 1, idxsW).reshape(
             (self.in_features, 1, self.kernel_size, self.kernel_size))
-        W1a = torch.index_select(self.weights1a, 1, self.idxsW.flatten().to(x.device)).reshape(
+        W1a = torch.index_select(self.weights1a, 1, idxsW).reshape(
             (self.in_features, 1, self.kernel_size, self.kernel_size))
 
-        W2 = torch.index_select(self.weights2, 1, self.idxsW2.flatten().to(x.device)).reshape(
-            (1, self.in_features, (self.patch_size // 2) ** 2)).permute(0, 2, 1)
+        # conv0
+        y = F.conv2d(x, W0, padding=self.padding0, groups=f)
+        log("SB_Block.conv0_out", y_shape=tuple(y.shape))
 
-        #   print("x.size()",x.size())
-        y = F.conv2d(x.reshape(bs, f, self.idim, self.idim), W0, padding=self.padding0, groups=f)
+        # proj + ReLU back to [B, C, H, W]
         y = nn.ReLU()(self.proj(y.permute(0, 2, 3, 1))).permute(0, 3, 1, 2)
-        # y = F.conv2d(y.reshape(bs, f,self.idim, self.idim), W01, padding=self.padding0, groups=f)
-        # x = nn.ReLU()(self.conv1(x) + y ) #self.proj1(x.permute(0,2,3,1)).permute(0,3,1,2))
+        log("SB_Block.proj_relu", y_shape=tuple(y.shape))
+
+        # downsample by 2
         x = nn.MaxPool2d((2, 2), stride=(2, 2))(y)
-        #     print(x.shape)
-        # ---first Sit'ish layer ---> reduced attention window size,
-        q = F.conv2d(x.reshape(bs, f, self.idim // 2, self.idim // 2), W, padding=self.padding, groups=f)
-        q = self.projq(q.permute(0, 2, 3, 1))  # y.permute(0,2,3,1) #
-        k = F.conv2d(x.reshape(bs, f, self.idim // 2, self.idim // 2), W1, padding=self.padding, groups=f)
-        k = self.projk(k.permute(0, 2, 3, 1))  # y.permute(0,2,3,1) #
-        qkv = self.norm(
-            self.get_patches_flat(torch.cat([q, k, x.permute(0, 2, 3, 1), ], dim=-1), ps=self.patch_size // 2))
-        #  print("qkv.shape", qkv.shape)
+        H2, W2 = x.size(2), x.size(3)
+        log("SB_Block.pool", x_shape=tuple(x.shape), H2=H2, W2=W2)
+
+        # stage 1 local attention
+        q = F.conv2d(x, W, padding=self.padding, groups=f)
+        k = F.conv2d(x, W1, padding=self.padding, groups=f)
+        xv = x.permute(0, 2, 3, 1)
+        q = self.projq(q.permute(0, 2, 3, 1))
+        k = self.projk(k.permute(0, 2, 3, 1))
+        log("SB_Block.stage1_qkv_in", q_shape=tuple(q.shape), k_shape=tuple(k.shape), xv_shape=tuple(xv.shape))
+
+        patches_ps = self.patch_size // 2  # with patch_size=8, ps=4
+        qkv_in = torch.cat([q, k, xv], dim=-1)
+        qkv = self.norm(self.get_patches_flat(qkv_in, ps=patches_ps))
+        log("SB_Block.stage1_patchify",
+            ps=patches_ps, qkv_shape=tuple(qkv.shape),
+            tokens_per_img=(H2 // patches_ps) * (W2 // patches_ps), elems_per_token=patches_ps ** 2)
+
         q, k, v = qkv[:, :, :f], qkv[:, :, f:2 * f], qkv[:, :, 2 * f:]
         x = v + self.attn(q, k, v)
-        x = self.reconstruct_image(
-            x.reshape(bs, ((self.idim // 2) // (self.patch_size // 2)) ** 2, (self.patch_size // 2) ** 2, f),
-            ps=self.patch_size // 2, img_dim=self.idim // 2)
-        x = x.permute(0, 3, 1, 2)
-        # ---second Sit'ish layer ---> reduced attention window size, only conv spans over more batches
-        q = F.conv2d(x.reshape(bs, f, self.idim // 2, self.idim // 2), Wa, padding=self.padding, groups=f)
-        q = self.projq2(q.permute(0, 2, 3, 1))  # y.permute(0,2,3,1) #
-        k = F.conv2d(x.reshape(bs, f, self.idim // 2, self.idim // 2), W1a, padding=self.padding, groups=f)
-        k = self.projk2(k.permute(0, 2, 3, 1))  # y.permute(0,2,3,1) #
-        qkv = self.norm2(
-            self.get_patches_flat(torch.cat([q, k, x.permute(0, 2, 3, 1), ], dim=-1), ps=self.patch_size // 2))
-        #  print("qkv.shape", qkv.shape)
-        q, k, v = qkv[:, :, :f], qkv[:, :, f:2 * f], qkv[:, :, 2 * f:]
-        x = v + self.attn(q, k, v)
+        log("SB_Block.stage1_attn_out", x_shape=tuple(x.shape))
 
-        x_inv = self.projfinv((nn.GELU()(x) * W2).sum(
-            1))  # alternatie to using token embeding, jsut multiply with weights of symmetries of graph
+        # reconstruct back to feature map [B, f, H2, W2]
+        recon_in = x.reshape(bs, (H2 // patches_ps) ** 2, (patches_ps) ** 2, f)
+        x = self.reconstruct_image(recon_in, ps=patches_ps, img_dim=H2).permute(0, 3, 1, 2)
+        H2, W2 = x.size(2), x.size(3)
+        log("SB_Block.stage1_recon", x_shape=tuple(x.shape), H2=H2, W2=W2)
 
-        x = (nn.GELU()(self.norm_f(x)))
-        x = self.projf2(nn.GELU()(self.projf(x)))
-        x = x.reshape(bs, self.num_patches, f // 2)
-        x = torch.cat([x, x_inv.reshape(bs, self.num_patches, f // 2)], dim=-1)
+        # stage 2 local attention
+        q2 = F.conv2d(x, Wa, padding=self.padding, groups=f)
+        k2 = F.conv2d(x, W1a, padding=self.padding, groups=f)
+        xv2 = x.permute(0, 2, 3, 1)
+        q2 = self.projq2(q2.permute(0, 2, 3, 1))
+        k2 = self.projk2(k2.permute(0, 2, 3, 1))
+        log("SB_Block.stage2_qkv_in", q_shape=tuple(q2.shape), k_shape=tuple(k2.shape), xv_shape=tuple(xv2.shape))
 
-        return x
+        qkv2_in = torch.cat([q2, k2, xv2], dim=-1)
+        qkv2 = self.norm2(self.get_patches_flat(qkv2_in, ps=patches_ps))
+        log("SB_Block.stage2_patchify", qkv2_shape=tuple(qkv2.shape))
+        q2, k2, v2 = qkv2[:, :, :f], qkv2[:, :, f:2 * f], qkv2[:, :, 2 * f:]
+        x2 = v2 + self.attn2(q2, k2, v2)
+        log("SB_Block.stage2_attn_out", x_shape=tuple(x2.shape))
+
+        # reshape and reconstruct to image for inverse and feature paths
+        recon2_in = x2.reshape(bs, (H2 // patches_ps) ** 2, (patches_ps) ** 2, f)
+        log("SB_Block.recon2_in", shape=tuple(recon2_in.shape))
+
+        x_img = self.reconstruct_image(recon2_in, ps=patches_ps, img_dim=H2).permute(0, 3, 1, 2)
+        log("SB_Block.x_img", shape=tuple(x_img.shape))
+
+        # build W2_spatial aligned with [bs, f, H2, W2]
+        W2_flat = torch.index_select(self.weights2, 1, idxsW2)  # [f, ps^2]
+        log("SB_Block.W2_flat", shape=tuple(W2_flat.shape), expect_f=f, expect_ps2=patches_ps * patches_ps)
+        W2_sp = W2_flat.view(self.in_features, patches_ps, patches_ps)  # [f, ps, ps]
+        W2_sp = W2_sp.repeat_interleave(H2 // patches_ps, dim=1).repeat_interleave(W2 // patches_ps,
+                                                                                   dim=2)  # [f, H2, W2]
+        W2_spatial = W2_sp.unsqueeze(0).expand(bs, -1, -1, -1)  # [bs, f, H2, W2]
+        log("SB_Block.W2_spatial", shape=tuple(W2_spatial.shape))
+
+        # inverse path
+        x_inv_in = nn.GELU()(x_img) * W2_spatial
+        x_inv_feat = self.projfinv(x_inv_in)  # [bs, f//2, H2, W2]
+        log("SB_Block.inverse", x_inv_in=tuple(x_inv_in.shape), x_inv_feat=tuple(x_inv_feat.shape))
+
+        # feature path: channels-last LayerNorm + MLP to f//2
+        x_feat = x_img.permute(0, 2, 3, 1)  # [bs, H2, W2, f]
+        x_feat = nn.GELU()(self.norm_f(x_feat))
+        x_feat = self.projf(x_feat)  # [bs, H2, W2, f//2]
+        x_feat = self.projf2(x_feat)  # [bs, H2, W2, f//2]
+        x_feat = x_feat.permute(0, 3, 1, 2)  # [bs, f//2, H2, W2]
+        log("SB_Block.final_feat", x_feat=tuple(x_feat.shape), H2=H2, W2=W2, num_patches=self.num_patches)
+
+        # tokenization
+        if self.use_adaptive_pool:
+            # keep fixed num_patches = (img_size // patch_size)^2
+            target_hw = (self.idim // self.patch_size, self.idim // self.patch_size)  # e.g. (4, 4)
+            pool = nn.AdaptiveAvgPool2d(target_hw)
+            x_feat_p = pool(x_feat)  # [bs, f//2, 4, 4]
+            x_inv_p = pool(x_inv_feat)  # [bs, f//2, 4, 4]
+            x_feat_tokens = x_feat_p.reshape(bs, self.num_patches, f // 2)
+            x_inv_tokens = x_inv_p.reshape(bs, self.num_patches, f // 2)
+            tokens = self.num_patches
+            log("SB_Block.tokenize_adaptive",
+                target_hw=target_hw, tokens=tokens,
+                x_feat_tokens=tuple(x_feat_tokens.shape), x_inv_tokens=tuple(x_inv_tokens.shape))
+        else:
+            # use all spatial positions as tokens
+            tokens = H2 * W2
+            x_feat_tokens = x_feat.permute(0, 2, 3, 1).reshape(bs, tokens, f // 2)
+            x_inv_tokens = x_inv_feat.permute(0, 2, 3, 1).reshape(bs, tokens, f // 2)
+            log("SB_Block.tokenize_spatial",
+                tokens=tokens, x_feat_tokens=tuple(x_feat_tokens.shape), x_inv_tokens=tuple(x_inv_tokens.shape))
+
+        out = torch.cat([x_feat_tokens, x_inv_tokens], dim=-1)  # [bs, tokens, f]
+        log("SB_Block.exit", out_shape=tuple(out.shape))
+        return out
 
 
 def grid_dist_to_idx2(dim=4):
