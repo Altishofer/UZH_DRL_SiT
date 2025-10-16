@@ -90,7 +90,6 @@ def fast_perceptual_downscale(
     return np.array(out)
 
 
-
 class TransposeObs(gym.ObservationWrapper):
     def __init__(self, env=None):
         """
@@ -156,6 +155,7 @@ class VecPyTorchProcgen(VecEnvWrapper):
         reward = torch.from_numpy(reward).unsqueeze(dim=1).float()
         return obs, reward, done, info
 
+
 class VecPyTorchProcgenSmall(VecPyTorchProcgen):
     def __init__(self, venv, device):
         super().__init__(venv, device)  # correct super
@@ -169,12 +169,11 @@ class VecPyTorchProcgenSmall(VecPyTorchProcgen):
         if h == 32 and w == 32:
             return obs_np
         dst_h, dst_w = 32, 32
-        factor_h = h / dst_h
-        factor_w = w / dst_w
-        factor = (factor_h + factor_w) * 0.5
         out = np.empty((b, dst_h, dst_w, c), dtype=np.uint8)
         for i in range(b):
-            out[i] = fast_perceptual_downscale(obs_np[i], factor=factor, resample=Image.Resampling.BOX)
+            img = Image.fromarray(obs_np[i], mode="RGB")
+            down = img.resize((dst_w, dst_h), resample=Image.Resampling.BILINEAR)
+            out[i] = np.array(down, dtype=np.uint8)
         return out
 
     def reset(self):
