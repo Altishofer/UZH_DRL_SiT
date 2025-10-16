@@ -262,12 +262,11 @@ class VecPyTorchProcgenSmall(VecPyTorchProcgen):
         if h == 32 and w == 32:
             return obs_np
         dst_h, dst_w = 32, 32
-        factor_h = h / dst_h
-        factor_w = w / dst_w
-        factor = (factor_h + factor_w) * 0.5
         out = np.empty((b, dst_h, dst_w, c), dtype=np.uint8)
         for i in range(b):
-            out[i] = fast_perceptual_downscale(obs_np[i], factor=factor, resample=Image.Resampling.BOX)
+            img = Image.fromarray(obs_np[i], mode="RGB")
+            down = img.resize((dst_w, dst_h), resample=Image.Resampling.BILINEAR)
+            out[i] = np.array(down, dtype=np.uint8)
         return out
 
     def _downscale_batch_gpu(self, obs_tensor):
