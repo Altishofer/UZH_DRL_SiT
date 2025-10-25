@@ -266,9 +266,10 @@ def train(args):
             # Sample actions
             with torch.no_grad():
                 obs_id = aug_id(rollouts.obs[step])
-                value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
-                    obs_id, rollouts.recurrent_hidden_states[step],
-                    rollouts.masks[step])
+                with torch.cuda.amp.autocast():
+                    value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
+                        obs_id, rollouts.recurrent_hidden_states[step],
+                        rollouts.masks[step])
 
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
